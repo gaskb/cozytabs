@@ -1,0 +1,9 @@
+services:
+  cozytabs:
+    image: gaskb/cozytabs:latest
+    container_name: cozytabs
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./tmp:/tmp/cozytabs
