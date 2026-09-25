@@ -16,6 +16,11 @@ def test_extract_url_reels():
     url = extract_url_from_text(text)
     assert url == "https://www.instagram.com/reel/C34xyz987/"
 
+def test_extract_url_tiktok_photo():
+    text = "Guarda questa infografica https://www.tiktok.com/@raphael.matos27/photo/7688776423246417173 utilissima"
+    url = extract_url_from_text(text)
+    assert url == "https://www.tiktok.com/@raphael.matos27/photo/7688776423246417173"
+
 def test_extract_url_none():
     text = "Ciao come stai nessun link qui"
     url = extract_url_from_text(text)

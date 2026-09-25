@@ -32,56 +32,58 @@ def publish_to_notion(lesson: GuitarLesson, original_url: str, uploader: str) ->
                 "rich_text": [
                     {"type": "text", "text": {"content": f"👤 Autore: {uploader}\n"}},
                     {"type": "text", "text": {"content": f"🎵 Tonalità: {lesson.key or 'N/D'} | ⚙️ Accordatura: {lesson.tuning} | Capotasto: {lesson.capo}\n"}},
-                    {"type": "text", "text": {"content": "🔗 Video originale: "}},
+                    *([{"type": "text", "text": {"content": f"🎶 Progressione: {lesson.progression}\n"}}] if lesson.progression else []),
+                    {"type": "text", "text": {"content": "🔗 Post/Video originale: "}},
                     {"type": "text", "text": {"content": original_url, "link": {"url": original_url}}}
                 ]
             }
-        },
-        # Sezione Accordi
-        {
+        }
+    ]
+
+    # Sezione Accordi
+    if lesson.chords:
+        children.append({
             "object": "block",
             "type": "heading_2",
             "heading_2": {
                 "rich_text": [{"type": "text", "text": {"content": "Accordi & Diteggiature (E A D G B e)"}}]
             }
-        }
-    ]
-
-    # Lista degli accordi
-    for chord in lesson.chords:
-        chord_desc = f" — {chord.description}" if chord.description else ""
-        children.append({
-            "object": "block",
-            "type": "bulleted_list_item",
-            "bulleted_list_item": {
-                "rich_text": [
-                    {"type": "text", "text": {"content": chord.name}, "annotations": {"bold": True}},
-                    {"type": "text", "text": {"content": " : "}},
-                    {"type": "text", "text": {"content": chord.fingering}, "annotations": {"code": True}},
-                    {"type": "text", "text": {"content": chord_desc}}
-                ]
-            }
         })
+        for chord in lesson.chords:
+            chord_desc = f" — {chord.description}" if chord.description else ""
+            children.append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": chord.name}, "annotations": {"bold": True}},
+                        {"type": "text", "text": {"content": " : "}},
+                        {"type": "text", "text": {"content": chord.fingering}, "annotations": {"code": True}},
+                        {"type": "text", "text": {"content": chord_desc}}
+                    ]
+                }
+            })
 
     # Sezione Tablatura
-    children.extend([
-        {
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [{"type": "text", "text": {"content": "Tablatura Esecuzione"}}]
+    if lesson.tablature and lesson.tablature.strip():
+        children.extend([
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": "Tablatura Esecuzione"}}]
+                }
+            },
+            {
+                "object": "block",
+                "type": "code",
+                "code": {
+                    "caption": [],
+                    "language": "plain text",
+                    "rich_text": [{"type": "text", "text": {"content": lesson.tablature.strip()}}]
+                }
             }
-        },
-        {
-            "object": "block",
-            "type": "code",
-            "code": {
-                "caption": [],
-                "language": "plain text",
-                "rich_text": [{"type": "text", "text": {"content": lesson.tablature.strip()}}]
-            }
-        }
-    ])
+        ])
 
     # Sezione Tecnica Mano Destra
     if lesson.right_hand_technique:

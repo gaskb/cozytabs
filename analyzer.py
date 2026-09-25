@@ -22,10 +22,10 @@ class GuitarLesson(BaseModel):
     key: str = Field(default="", description="Tonalità stimata del brano o della progressione")
     progression: str = Field(default="", description="Progressione accordi, es. A -> B -> C#m -> G#m")
     chords: List[Chord] = Field(default_factory=list, description="Lista degli accordi con relative diteggiature")
-    tablature: str = Field(description="Tablatura ASCII standard a 6 righe (e, B, G, D, A, E) formattata a larghezza fissa")
-    right_hand_technique: str = Field(default="", description="Spiegazione del pattern mano destra (es. arpeggio pollice-indice-medio, plettrata, ecc.)")
-    execution_tips: List[str] = Field(default_factory=list, description="Consigli pratici ed ergonomici per suonare il passaggio")
-    summary: str = Field(description="Spiegazione del concetto armonico o del trucco mostrato nel video")
+    tablature: str = Field(default="", description="Tablatura ASCII standard a 6 righe (e, B, G, D, A, E) formattata a larghezza fissa o stringa vuota se non applicabile")
+    right_hand_technique: str = Field(default="", description="Spiegazione del pattern mano destra (es. arpeggio pollice-indice-medio, plettrata, ecc.) o indicazioni tecniche")
+    execution_tips: List[str] = Field(default_factory=list, description="Consigli pratici ed ergonomici per suonare il passaggio o applicare i concetti")
+    summary: str = Field(default="", description="Spiegazione del concetto armonico, trucco o consiglio didattico mostrato nel post")
 
 def extract_keyframes(video_path: str, output_dir: str, num_frames: int = 8) -> List[str]:
     """
@@ -68,17 +68,28 @@ def extract_keyframes(video_path: str, output_dir: str, num_frames: int = 8) -> 
     logger.info("Estratti %d fotogrammi da %s", len(extracted), video_path)
     return extracted
 
-def analyze_guitar_video(video_path: str, api_key: str, video_title: str = "", uploader: str = "") -> GuitarLesson:
+def analyze_guitar_video(
+    video_path: str,
+    api_key: str,
+    video_title: str = "",
+    uploader: str = "",
+    image_paths: Optional[List[str]] = None
+) -> GuitarLesson:
     """
-    Analizza i fotogrammi estratti dal video usando Gemini Flash per ricavare
-    tablatura, accordi, diteggiature e consigli didattici.
+    Analizza i fotogrammi estratti dal video o le immagini di un post fotografico usando Gemini Flash
+    per ricavare tablatura, accordi, diteggiature, progressioni e consigli didattici.
     """
     client = genai.Client(api_key=api_key)
-    tmp_dir = os.path.join(os.path.dirname(video_path), "frames")
-    frames = extract_keyframes(video_path, tmp_dir, num_frames=8)
+
+    if image_paths and len(image_paths) > 0:
+        frames = image_paths
+        logger.info("Utilizzo %d immagini fornite direttamente per l'analisi visiva", len(frames))
+    else:
+        tmp_dir = os.path.join(os.path.dirname(video_path), "frames")
+        frames = extract_keyframes(video_path, tmp_dir, num_frames=8)
 
     if not frames:
-        raise ValueError("Nessun fotogramma estratto dal video.")
+        raise ValueError("Nessun fotogramma o immagine disponibile per l'analisi.")
 
     inputs = []
     for fpath in frames:
@@ -86,49 +97,51 @@ def analyze_guitar_video(video_path: str, api_key: str, video_title: str = "", u
             b64_data = base64.b64encode(f.read()).decode("utf-8")
             inputs.append({"type": "image", "data": b64_data, "mime_type": "image/jpeg"})
 
-    prompt = f"""Sei un maestro di chitarra esperto e trascrittore musicale professionista.
-Ti sono forniti dei fotogrammi sequenziali estratti da un video didattico/musicale di chitarra (TikTok/Reel).
+    prompt = f"""Sei un maestro di musica, chitarra ed esperto didattico/trascrittore professionista.
+Ti sono forniti dei fotogrammi sequenziali o un'immagine/infografica didattica musicale (TikTok/Reel/Post).
 Informazioni disponibili:
 - Autore: {uploader or 'Creator'}
-- Titolo video: {video_title or 'Video Chitarra'}
+- Titolo post/video: {video_title or 'Lezione/Post Musicale'}
 
-Il tuo compito è analizzare la grafica a schermo (nomi di accordi, diteggiature, box di accordi, tablature sovraimpresse) e le mani del chitarrista sul manico per ricavare la trascrizione più fedele, leggibile e utile per lo studio.
+Il tuo compito è analizzare con massima accuratezza ciò che è mostrato a schermo (diteggiature, accordi, nomi, box di accordi, tablature sovraimpresse, posizioni delle mani o schemi didattici).
 
 DEVI restituire ESCLUSIVAMENTE un oggetto JSON valido conforme a questa struttura:
 {{
-  "title": "Titolo descrittivo del riff o della progressione (es. Voicings Aperti Moderni per A - B - C#m - G#m)",
+  "title": "Titolo descrittivo del riff, brano o infografica (es. 'The Calling - Wherever You Will Go (Accordi Facili)' o 'Magic Chord Sequence')",
   "tuning": "Standard (E A D G B E) oppure accordatura specifica",
   "capo": "Nessuno oppure Capotasto al tasto X",
   "key": "Tonalità principale stimata",
-  "progression": "Sequenza accordi principale (es. Aadd#4 -> B(add11) -> C#m9 -> G#m(b6))",
+  "progression": "Sequenza o progressione di accordi principale (es. C -> G -> Am -> F)",
   "chords": [
     {{
-      "name": "Nome accordo (es. Aadd#4)",
-      "fingering": "Diteggiatura precisa a 6 corde 'E A D G B e' (es. x 0 x 4 4 0)",
-      "description": "Dettaglio corde e dita usate"
+      "name": "Nome accordo (es. C, G, Am, F o voicings estesi)",
+      "fingering": "Diteggiatura a 6 corde 'E A D G B e' (es. x 3 2 0 1 0)",
+      "description": "Dettaglio posizione o dita usate"
     }}
   ],
-  "tablature": "Tablatura ASCII standard a 6 righe completa e pulita, allineata a spaziatura fissa:\\ne|---------...\\nB|---------...\\nG|---------...\\nD|---------...\\nA|---------...\\nE|---------...",
-  "right_hand_technique": "Descrizione accurata della mano destra (es. arpeggio con pollice sul basso e dita sulle corde acute, plettrata alternata, ecc.)",
+  "tablature": "Se presente o applicabile, tablatura ASCII standard a 6 righe completa e pulita, allineata a spaziatura fissa:\\ne|---------...\\nB|---------...\\nG|---------...\\nD|---------...\\nA|---------...\\nE|---------...\\nAltrimenti lascia stringa vuota \\"\\"",
+  "right_hand_technique": "Descrizione accurata del pattern mano destra (arpeggio, plettrata alternata, strumming pattern es. D-DU-UDU) oppure indicazioni tecniche",
   "execution_tips": [
-    "Consiglio pratico di postura/diteggiatura 1",
+    "Consiglio pratico 1",
     "Consiglio pratico 2"
   ],
-  "summary": "Breve spiegazione del trucco/concetto musicale spiegato nel video e come applicarlo"
+  "summary": "Spiegazione didattica del concetto, trucco o progressione spiegata e come applicarla"
 }}
 
-Attenzione:
-- Assicurati che le tablature siano allineate e corrette per tutte e 6 le corde.
-- Se noti refusi nella grafica del creator a schermo rispetto a come suona la mano, segnalalo e usa la diteggiatura corretta.
+Regole tassative:
+- Se l'immagine è un'infografica con diverse progressioni o consigli (es. accordi per atmosfera/emozione, o consigli di produzione/EQ), estrai tutti gli accordi o i punti chiave con la massima cura.
+- Se le tablature sono presenti, assicurati che siano rigorosamente allineate per tutte e 6 le corde.
 - Non aggiungere markdown backtick (es. ```json) prima o dopo il JSON, restituisci solo il testo JSON puro.
 """
     inputs.append({"type": "text", "text": prompt})
 
     candidate_models = [
-        "gemini-3.5-flash",
-        "gemini-3.7-flash",
+        "gemini-flash-latest",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
         "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.5-flash",
     ]
 
     last_error = None
@@ -140,7 +153,6 @@ Attenzione:
                 input=inputs
             )
             raw_text = interaction.output_text or ""
-            # Pulizia eventuali delimitatori di blocco codice
             cleaned = raw_text.strip()
             if cleaned.startswith("```json"):
                 cleaned = cleaned[7:]
@@ -157,3 +169,4 @@ Attenzione:
             last_error = e
 
     raise RuntimeError(f"Tutti i modelli Gemini candidati hanno fallito. Ultimo errore: {last_error}")
+

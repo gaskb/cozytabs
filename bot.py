@@ -63,14 +63,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Feedback immediato
     status_msg = await message.reply_text(
-        "🎸 Ricevuto! Scarico il video ed estraggo la tablatura con Gemini... un attimo di pazienza."
+        "🎸 Ricevuto! Scarico il media ed elaboro gli accordi con Gemini... un attimo di pazienza."
     )
 
     work_dir = os.path.join(Config.DOWNLOAD_DIR, f"task_{message.message_id}")
     os.makedirs(work_dir, exist_ok=True)
 
     try:
-        # 1. Download video
+        # 1. Download video o immagini (Photo Mode)
         logger.info("Avvio download per URL: %s", url)
         video_info = await asyncio.to_thread(download_video, url, work_dir)
         video_path = video_info["file_path"]
@@ -82,7 +82,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             video_path,
             Config.GEMINI_API_KEY,
             video_info.get("title", ""),
-            video_info.get("uploader", "")
+            video_info.get("uploader", ""),
+            video_info.get("image_paths", [])
         )
 
         # 3. Creazione pagina Notion
@@ -95,13 +96,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # 4. Risposta finale
+        preview_block = ""
+        if lesson.tablature and lesson.tablature.strip():
+            preview_block = f"**Tablatura:**\n```\n{lesson.tablature.strip()}\n```\n\n"
+        elif lesson.progression:
+            preview_block = f"🎶 **Progressione:** `{lesson.progression}`\n\n"
+        elif lesson.chords:
+            chords_str = ", ".join([f"{c.name} ({c.fingering})" for c in lesson.chords[:5]])
+            preview_block = f"🎼 **Accordi:** {chords_str}\n\n"
+
         response_text = (
-            f"✅ **Tab pronta su Notion!**\n\n"
+            f"✅ **Scheda pronta su Notion!**\n\n"
             f"🎸 **{lesson.title}**\n"
             f"👤 Autore: {video_info.get('uploader')}\n"
-            f"🎵 Tonalità: `{lesson.key or 'Standard'}` | ⚙️ Accordatura: `{lesson.tuning}`\n"
+            f"🎵 Tonalità: `{lesson.key or 'N/D'}` | ⚙️ Accordatura: `{lesson.tuning}`\n"
             f"Capotasto: `{lesson.capo}`\n\n"
-            f"**Tablatura:**\n```\n{lesson.tablature}\n```\n\n"
+            f"{preview_block}"
             f"👉 [Apri la scheda su Notion]({notion_url})"
         )
         await status_msg.edit_text(response_text, parse_mode="Markdown", disable_web_page_preview=True)
