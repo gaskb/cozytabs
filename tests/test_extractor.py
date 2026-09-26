@@ -1,3 +1,4 @@
+import os
 import pytest
 from extractor import extract_url_from_text
 
@@ -68,5 +69,67 @@ def test_download_video_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(yt_dlp, "YoutubeDL", mock_ydl_class)
 
     with pytest.raises(RuntimeError, match="Errore download media"):
-        download_video("https://tiktok.com/@g/video/99999", output_dir=str(tmp_path))
+        download_video("https://instagram.com/reel/nonexistent/", output_dir=str(tmp_path))
+
+def test_download_tiktok_direct_video_mock(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+    import requests
+    from extractor import download_tiktok_direct
+
+    def mock_get(url, *args, **kwargs):
+        res = MagicMock()
+        res.status_code = 200
+        if "tikwm.com/api" in url:
+            res.json.return_value = {
+                "code": 0,
+                "data": {
+                    "id": "77777",
+                    "title": "Riff TikWM",
+                    "author": {"nickname": "GuitarGod"},
+                    "duration": 30,
+                    "cover": "https://example.com/cover.jpg",
+                    "play": "https://example.com/video.mp4",
+                    "images": None
+                }
+            }
+        else:
+            res.content = b"fake mp4 video bytes" * 100
+        return res
+
+    monkeypatch.setattr(requests, "get", mock_get)
+    result = download_tiktok_direct("https://vm.tiktok.com/ZN8rhxqVP/", output_dir=str(tmp_path))
+    assert result["id"] == "77777"
+    assert result["title"] == "Riff TikWM"
+    assert result["media_type"] == "video"
+    assert os.path.exists(result["file_path"])
+
+def test_download_tiktok_direct_photo_mock(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+    import requests
+    from extractor import download_tiktok_direct
+
+    def mock_get(url, *args, **kwargs):
+        res = MagicMock()
+        res.status_code = 200
+        if "tikwm.com/api" in url:
+            res.json.return_value = {
+                "code": 0,
+                "data": {
+                    "id": "88888",
+                    "title": "Infografica TikWM",
+                    "author": {"nickname": "GuitarTeacher"},
+                    "duration": 0,
+                    "cover": "https://example.com/cover.jpg",
+                    "images": ["https://example.com/img1.jpg", "https://example.com/img2.jpg"]
+                }
+            }
+        else:
+            res.content = b"fake jpeg bytes" * 100
+        return res
+
+    monkeypatch.setattr(requests, "get", mock_get)
+    result = download_tiktok_direct("https://vm.tiktok.com/ZN8rY8VRW/", output_dir=str(tmp_path))
+    assert result["id"] == "88888"
+    assert result["media_type"] == "photo"
+    assert len(result["image_paths"]) == 2
 

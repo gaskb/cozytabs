@@ -145,6 +145,104 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
                 }
 
     except Exception as e:
-        logger.error("Errore durante il download con yt-dlp: %s", e)
+        logger.warning("Download primario yt-dlp non riuscito: %s", e)
+        is_tiktok = any(d in url.lower() for d in ["tiktok.com", "vm.tiktok", "vt.tiktok"])
+        if is_tiktok:
+            logger.info("Rilevato link TikTok (%s). Avvio fallback tramite API diretta...", url)
+            try:
+                return download_tiktok_direct(url, output_dir)
+            except Exception as fb_err:
+                logger.error("Anche il fallback diretto TikTok ha fallito: %s", fb_err)
+                raise RuntimeError(f"Errore download media TikTok: {fb_err}") from fb_err
+
+        logger.error("Errore irreversibile durante il download con yt-dlp: %s", e)
         raise RuntimeError(f"Errore download media: {e}") from e
+
+def download_tiktok_direct(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any]:
+    """
+    Scarica video o caroselli fotografici da TikTok tramite endpoint diretto TikWM.
+    Bypassa le restrizioni di login obbligatorio e i redirect dei link brevi (vm.tiktok.com).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    api_url = f"https://www.tikwm.com/api/?url={url}"
+    logger.info("Chiamata endpoint TikWM per URL: %s", url)
+    resp = requests.get(api_url, headers=headers, timeout=15)
+    if resp.status_code != 200:
+        raise ValueError(f"Endpoint TikWM non raggiungibile (HTTP {resp.status_code})")
+
+    res_json = resp.json()
+    if res_json.get("code") != 0 or not res_json.get("data"):
+        err_msg = res_json.get("msg") or "Dati non disponibili o video privato"
+        raise ValueError(f"TikWM: {err_msg}")
+
+    data = res_json["data"]
+    video_id = str(data.get("id") or "tiktok_media")
+    title = data.get("title") or "Riff o Lezione di Chitarra"
+    author_info = data.get("author") or {}
+    uploader = author_info.get("nickname") or author_info.get("unique_id") or "TikTok Creator"
+    duration = data.get("duration", 0)
+    thumbnail_url = data.get("cover") or data.get("origin_cover") or ""
+
+    images = data.get("images") or []
+    if images and len(images) > 0:
+        # Carosello fotografico / Photo Mode
+        logger.info("TikWM: rilevato carosello fotografico con %d immagini", len(images))
+        image_paths: List[str] = []
+        for idx, img_url in enumerate(images[:6]):
+            dest_img = os.path.join(output_dir, f"photo_{video_id}_{idx}.jpg")
+            try:
+                img_resp = requests.get(img_url, headers=headers, timeout=15)
+                if img_resp.status_code == 200 and len(img_resp.content) > 1000:
+                    with open(dest_img, "wb") as f:
+                        f.write(img_resp.content)
+                    image_paths.append(dest_img)
+                    logger.info("Scaricata immagine carosello %d: %s (%d bytes)", idx, dest_img, len(img_resp.content))
+            except Exception as img_err:
+                logger.warning("Errore scaricamento immagine %d (%s): %s", idx, img_url, img_err)
+
+        if not image_paths:
+            raise ValueError("Impossibile scaricare le immagini del carosello TikTok")
+
+        return {
+            "id": video_id,
+            "title": title,
+            "uploader": uploader,
+            "url": url,
+            "duration": 0,
+            "media_type": "photo",
+            "file_path": image_paths[0],
+            "image_paths": image_paths,
+            "thumbnail_url": thumbnail_url or images[0],
+        }
+    else:
+        # Video MP4 normale
+        play_url = data.get("play") or data.get("wmplay")
+        if not play_url:
+            raise ValueError("Nessun flusso video trovato nei dati restituiti da TikTok")
+
+        mp4_file = os.path.join(output_dir, f"{video_id}.mp4")
+        logger.info("TikWM: scaricamento video da CDN verso %s...", mp4_file)
+        video_resp = requests.get(play_url, headers=headers, stream=True, timeout=30)
+        if video_resp.status_code != 200 or len(video_resp.content) < 1000:
+            raise ValueError(f"Download stream video fallito con status {video_resp.status_code}")
+
+        with open(mp4_file, "wb") as vf:
+            vf.write(video_resp.content)
+
+        logger.info("Download video TikTok completato: %s (%d bytes)", mp4_file, len(video_resp.content))
+        return {
+            "id": video_id,
+            "title": title,
+            "uploader": uploader,
+            "url": url,
+            "duration": duration,
+            "media_type": "video",
+            "file_path": mp4_file,
+            "image_paths": [],
+            "thumbnail_url": thumbnail_url,
+        }
 
