@@ -71,10 +71,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎸 Ricevuto! In attesa di elaborazione..."
     )
 
-    work_dir = os.path.join(Config.DOWNLOAD_DIR, f"task_{message.message_id}")
-    os.makedirs(work_dir, exist_ok=True)
-
+    work_dir = None
     try:
+        work_dir = os.path.join(Config.DOWNLOAD_DIR, f"task_{message.message_id}")
+        os.makedirs(work_dir, exist_ok=True)
+
         async with PROCESSING_SEMAPHORE:
             # 1. Download video o immagini (Photo Mode)
             await status_msg.edit_text("⏳ <b>[1/3]</b> Scarico il media da analizzare...", parse_mode=ParseMode.HTML)
@@ -156,6 +157,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_reason = "Impossibile completare l'analisi musicale con Gemini AI. Riprova tra qualche istante."
         elif "notion" in err_lower:
             user_reason = "Impossibile salvare la scheda su Notion. Verifica la connessione e la configurazione del database."
+        elif "permission" in err_lower or "denied" in err_lower:
+            user_reason = "Errore di accesso o permessi al filesystem temporaneo sul server."
         else:
             user_reason = "Si è verificato un errore imprevisto durante l'elaborazione del post."
 
@@ -171,11 +174,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     finally:
         # Pulizia file temporanei scaricati
-        if os.path.exists(work_dir):
+        if work_dir and os.path.exists(work_dir):
             try:
                 shutil.rmtree(work_dir)
             except Exception as clean_err:
                 logger.warning("Errore pulizia directory temporanea %s: %s", work_dir, clean_err)
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Gestore globale per qualsiasi eccezione non catturata negli handler."""
+    logger.error("Eccezione non gestita nell'applicazione Telegram: %s", context.error, exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "❌ <b>Si è verificato un errore interno non previsto.</b>\n\n"
+                "<i>I dettagli sono stati registrati nei log del server.</i>",
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.warning("Impossibile inviare notifica di errore globale: %s", e)
 
 def main():
     Config.validate()
@@ -199,6 +215,7 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", start_command))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    app.add_error_handler(global_error_handler)
 
     app.run_polling(drop_pending_updates=True)
 
