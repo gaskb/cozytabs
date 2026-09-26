@@ -3,7 +3,7 @@ import html
 import shutil
 import logging
 import asyncio
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
@@ -76,14 +76,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with PROCESSING_SEMAPHORE:
-            await status_msg.edit_text("🎸 Scarico il media ed elaboro gli accordi con Gemini... un attimo di pazienza.")
-
             # 1. Download video o immagini (Photo Mode)
+            await status_msg.edit_text("⏳ <b>[1/3]</b> Scarico il media da analizzare...", parse_mode=ParseMode.HTML)
             logger.info("Avvio download per URL: %s", url)
             video_info = await asyncio.to_thread(download_video, url, work_dir)
             video_path = video_info["file_path"]
 
             # 2. Analisi multimodale Gemini
+            await status_msg.edit_text("🧠 <b>[2/3]</b> Analisi armonica e diteggiature con Gemini Vision...", parse_mode=ParseMode.HTML)
             logger.info("Avvio analisi Gemini per: %s", video_path)
             lesson = await asyncio.to_thread(
                 analyze_guitar_video,
@@ -95,6 +95,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             # 3. Creazione pagina Notion
+            await status_msg.edit_text("📝 <b>[3/3]</b> Creo la scheda formattata su Notion...", parse_mode=ParseMode.HTML)
             logger.info("Pubblicazione scheda su Notion...")
             notion_url = await asyncio.to_thread(
                 publish_to_notion,
@@ -103,7 +104,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 video_info.get("uploader", "")
             )
 
-            # 4. Risposta finale formattata in HTML sicuro
+            # 4. Risposta finale formattata in HTML sicuro con Inline Keyboard
             safe_title = html.escape(lesson.title or "Senza Titolo")
             safe_uploader = html.escape(video_info.get("uploader") or "Sconosciuto")
             safe_key = html.escape(lesson.key or "N/D")
@@ -112,7 +113,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             preview_block = ""
             if lesson.tablature and lesson.tablature.strip():
-                # Tronca l'anteprima in chat a max 800 caratteri per leggibilità
                 clean_tab = lesson.tablature.strip()
                 if len(clean_tab) > 800:
                     clean_tab = clean_tab[:800] + "\n..."
@@ -130,9 +130,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎵 Tonalità: <code>{safe_key}</code> | ⚙️ Accordatura: <code>{safe_tuning}</code>\n"
                 f"Capotasto: <code>{safe_capo}</code>\n\n"
                 f"{preview_block}"
-                f"👉 <a href=\"{notion_url}\">Apri la scheda su Notion</a>"
             )
-            await status_msg.edit_text(response_text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎸 Apri Scheda su Notion", url=notion_url)]
+            ])
+
+            await status_msg.edit_text(
+                response_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
             logger.info("Elaborazione completata con successo per URL: %s", url)
 
     except Exception as e:

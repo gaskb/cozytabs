@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-import urllib.request
+import requests
 from typing import Dict, Any, Optional, List
 import yt_dlp
 
@@ -41,7 +41,8 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
     }
 
     # Controllo cookie
-    cookies_path = os.getenv("COOKIES_FILE", "")
+    from config import Config
+    cookies_path = Config.COOKIES_FILE
     if not cookies_path or not os.path.exists(cookies_path):
         candidate = os.path.join(os.path.dirname(__file__), "cookies.txt")
         if os.path.exists(candidate):
@@ -113,12 +114,14 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
                 for idx, t_url in enumerate(thumb_urls[:3]):
                     dest_img = os.path.join(output_dir, f"photo_{video_id}_{idx}.jpg")
                     try:
-                        req = urllib.request.Request(t_url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=15) as resp, open(dest_img, "wb") as out_f:
-                            out_f.write(resp.read())
-                        if os.path.exists(dest_img) and os.path.getsize(dest_img) > 1000:
+                        resp = requests.get(t_url, headers=headers, timeout=15)
+                        if resp.status_code == 200 and len(resp.content) > 1000:
+                            with open(dest_img, "wb") as out_f:
+                                out_f.write(resp.content)
                             image_paths.append(dest_img)
-                            logger.info("Scaricata immagine %d: %s (%d bytes)", idx, dest_img, os.path.getsize(dest_img))
+                            logger.info("Scaricata immagine %d: %s (%d bytes)", idx, dest_img, len(resp.content))
+                        else:
+                            logger.warning("Download thumbnail fallito con status %s per %s", resp.status_code, t_url)
                     except Exception as img_err:
                         logger.warning("Errore download thumbnail %s: %s", t_url, img_err)
 

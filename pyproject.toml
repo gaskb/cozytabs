@@ -1,6 +1,6 @@
 [project]
 name = "cozytabs"
-version = "1.1.1"
+version = "1.2.0"
 description = "Bot Telegram: trascrizione AI multimodale di riff e accordi di chitarra da TikTok a Notion"
 authors = [
     { name = "Gas", email = "3176633+gaskb@users.noreply.github.com" }

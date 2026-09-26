@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APP_VERSION = "1.1.1"
-API_VERSION = "1.1.1"
+APP_VERSION = "1.2.0"
+API_VERSION = "1.2.0"
 
 class Config:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -13,6 +13,7 @@ class Config:
     NOTION_TOKEN: str = os.getenv("NOTION_TOKEN", "").strip()
     NOTION_PARENT_PAGE_ID: str = os.getenv("NOTION_PARENT_PAGE_ID", "").strip()
     DOWNLOAD_DIR: str = os.getenv("DOWNLOAD_DIR", "/tmp/cozytabs").strip()
+    COOKIES_FILE: str = os.getenv("COOKIES_FILE", "").strip()
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").strip()
 
     # Parsed allowed users
@@ -20,6 +21,21 @@ class Config:
     ALLOWED_USER_IDS: List[int] = [
         int(uid.strip()) for uid in _raw_users.split(",") if uid.strip().isdigit()
     ]
+
+    @classmethod
+    def reload(cls):
+        """Ricarica i parametri di configurazione dall'ambiente (utile per test o reload dinamici)."""
+        cls.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        cls.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+        cls.NOTION_TOKEN = os.getenv("NOTION_TOKEN", "").strip()
+        cls.NOTION_PARENT_PAGE_ID = os.getenv("NOTION_PARENT_PAGE_ID", "").strip()
+        cls.DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/cozytabs").strip()
+        cls.COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
+        cls.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip()
+        raw_users = os.getenv("ALLOWED_USER_IDS", "").strip()
+        cls.ALLOWED_USER_IDS = [
+            int(uid.strip()) for uid in raw_users.split(",") if uid.strip().isdigit()
+        ]
 
     @classmethod
     def validate(cls):

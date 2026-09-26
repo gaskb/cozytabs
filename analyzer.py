@@ -144,14 +144,31 @@ Regole tassative:
         "gemini-3.5-flash",
     ]
 
+    lesson_schema = GuitarLesson.model_json_schema()
+    response_format = {
+        "type": "text",
+        "mime_type": "application/json",
+        "schema": lesson_schema,
+    }
+
     last_error = None
     for model_name in candidate_models:
         try:
             logger.info("Chiamata modello Gemini: %s", model_name)
-            interaction = client.interactions.create(
-                model=model_name,
-                input=inputs
-            )
+            try:
+                # Tentativo primario: Structured Outputs nativo con schema Pydantic
+                interaction = client.interactions.create(
+                    model=model_name,
+                    input=inputs,
+                    response_format=response_format
+                )
+            except Exception as format_err:
+                logger.warning("Structured outputs non supportato da %s (%s), fallback a prompt testuale", model_name, format_err)
+                interaction = client.interactions.create(
+                    model=model_name,
+                    input=inputs
+                )
+
             raw_text = interaction.output_text or ""
             cleaned = raw_text.strip()
             if cleaned.startswith("```json"):
