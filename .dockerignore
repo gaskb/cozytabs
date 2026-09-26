@@ -1,0 +1,15 @@
+.env
+.env.*
+cookies.txt
+.git
+.gitignore
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tmp/
+*.m4a
+*.mp4
+*.jpg
+*.jpeg
+*.png

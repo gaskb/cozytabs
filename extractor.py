@@ -114,7 +114,7 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
                     dest_img = os.path.join(output_dir, f"photo_{video_id}_{idx}.jpg")
                     try:
                         req = urllib.request.Request(t_url, headers=headers)
-                        with urllib.request.urlopen(req) as resp, open(dest_img, "wb") as out_f:
+                        with urllib.request.urlopen(req, timeout=15) as resp, open(dest_img, "wb") as out_f:
                             out_f.write(resp.read())
                         if os.path.exists(dest_img) and os.path.getsize(dest_img) > 1000:
                             image_paths.append(dest_img)

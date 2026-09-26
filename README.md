@@ -1,7 +1,7 @@
 # 🎸 CozyTabs
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![API Version](https://img.shields.io/badge/api-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)
+![API Version](https://img.shields.io/badge/api-1.1.1-green.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-orange.svg)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 ![Docker](https://img.shields.io/badge/docker-multi--arch-blue.svg)

@@ -1,8 +1,10 @@
 import os
+import html
 import shutil
 import logging
 import asyncio
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -23,6 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("cozytabs")
 
+# Limite di concorrenza per evitare saturazione di memoria/CPU nell'homelab
+PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Risponde al comando /start verificando l'ID utente."""
     user = update.effective_user
@@ -33,15 +38,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = (
-        f"🎸 **CozyTabs Bot v{APP_VERSION}**\n\n"
-        "Ciao Gas! Inviami o condividi qui qualsiasi link di **TikTok**, **Instagram Reels** o **YouTube Shorts** che parla di chitarra, arpeggi o accordi.\n\n"
+        f"🎸 <b>CozyTabs Bot v{APP_VERSION}</b>\n\n"
+        "Ciao Gas! Inviami o condividi qui qualsiasi link di <b>TikTok</b>, <b>Instagram Reels</b> o <b>YouTube Shorts</b> che parla di chitarra, arpeggi o accordi.\n\n"
         "Dietro le quinte:\n"
-        "1. Scarico il video in background.\n"
+        "1. Scarico il video o le infografiche in background.\n"
         "2. Gemini analizza i fotogrammi e trascrive accordi, diteggiature e tablatura.\n"
-        "3. Creo automaticamente la scheda su Notion sotto **🎸 CozyTabs** per la tua postazione studio!"
+        "3. Creo automaticamente la scheda su Notion sotto <b>🎸 CozyTabs</b> per la tua postazione studio!"
     )
     if update.effective_message:
-        await update.effective_message.reply_markdown(msg)
+        await update.effective_message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gestisce i messaggi di testo contenenti URL."""
@@ -63,68 +68,86 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Feedback immediato
     status_msg = await message.reply_text(
-        "🎸 Ricevuto! Scarico il media ed elaboro gli accordi con Gemini... un attimo di pazienza."
+        "🎸 Ricevuto! In attesa di elaborazione..."
     )
 
     work_dir = os.path.join(Config.DOWNLOAD_DIR, f"task_{message.message_id}")
     os.makedirs(work_dir, exist_ok=True)
 
     try:
-        # 1. Download video o immagini (Photo Mode)
-        logger.info("Avvio download per URL: %s", url)
-        video_info = await asyncio.to_thread(download_video, url, work_dir)
-        video_path = video_info["file_path"]
+        async with PROCESSING_SEMAPHORE:
+            await status_msg.edit_text("🎸 Scarico il media ed elaboro gli accordi con Gemini... un attimo di pazienza.")
 
-        # 2. Analisi multimodale Gemini
-        logger.info("Avvio analisi Gemini per: %s", video_path)
-        lesson = await asyncio.to_thread(
-            analyze_guitar_video,
-            video_path,
-            Config.GEMINI_API_KEY,
-            video_info.get("title", ""),
-            video_info.get("uploader", ""),
-            video_info.get("image_paths", [])
-        )
+            # 1. Download video o immagini (Photo Mode)
+            logger.info("Avvio download per URL: %s", url)
+            video_info = await asyncio.to_thread(download_video, url, work_dir)
+            video_path = video_info["file_path"]
 
-        # 3. Creazione pagina Notion
-        logger.info("Pubblicazione scheda su Notion...")
-        notion_url = await asyncio.to_thread(
-            publish_to_notion,
-            lesson,
-            url,
-            video_info.get("uploader", "")
-        )
+            # 2. Analisi multimodale Gemini
+            logger.info("Avvio analisi Gemini per: %s", video_path)
+            lesson = await asyncio.to_thread(
+                analyze_guitar_video,
+                video_path,
+                Config.GEMINI_API_KEY,
+                video_info.get("title", ""),
+                video_info.get("uploader", ""),
+                video_info.get("image_paths", [])
+            )
 
-        # 4. Risposta finale
-        preview_block = ""
-        if lesson.tablature and lesson.tablature.strip():
-            preview_block = f"**Tablatura:**\n```\n{lesson.tablature.strip()}\n```\n\n"
-        elif lesson.progression:
-            preview_block = f"🎶 **Progressione:** `{lesson.progression}`\n\n"
-        elif lesson.chords:
-            chords_str = ", ".join([f"{c.name} ({c.fingering})" for c in lesson.chords[:5]])
-            preview_block = f"🎼 **Accordi:** {chords_str}\n\n"
+            # 3. Creazione pagina Notion
+            logger.info("Pubblicazione scheda su Notion...")
+            notion_url = await asyncio.to_thread(
+                publish_to_notion,
+                lesson,
+                url,
+                video_info.get("uploader", "")
+            )
 
-        response_text = (
-            f"✅ **Scheda pronta su Notion!**\n\n"
-            f"🎸 **{lesson.title}**\n"
-            f"👤 Autore: {video_info.get('uploader')}\n"
-            f"🎵 Tonalità: `{lesson.key or 'N/D'}` | ⚙️ Accordatura: `{lesson.tuning}`\n"
-            f"Capotasto: `{lesson.capo}`\n\n"
-            f"{preview_block}"
-            f"👉 [Apri la scheda su Notion]({notion_url})"
-        )
-        await status_msg.edit_text(response_text, parse_mode="Markdown", disable_web_page_preview=True)
-        logger.info("Elaborazione completata con successo per URL: %s", url)
+            # 4. Risposta finale formattata in HTML sicuro
+            safe_title = html.escape(lesson.title or "Senza Titolo")
+            safe_uploader = html.escape(video_info.get("uploader") or "Sconosciuto")
+            safe_key = html.escape(lesson.key or "N/D")
+            safe_tuning = html.escape(lesson.tuning or "Standard")
+            safe_capo = html.escape(lesson.capo or "Nessuno")
+
+            preview_block = ""
+            if lesson.tablature and lesson.tablature.strip():
+                # Tronca l'anteprima in chat a max 800 caratteri per leggibilità
+                clean_tab = lesson.tablature.strip()
+                if len(clean_tab) > 800:
+                    clean_tab = clean_tab[:800] + "\n..."
+                preview_block = f"<b>Tablatura:</b>\n<pre>{html.escape(clean_tab)}</pre>\n\n"
+            elif lesson.progression:
+                preview_block = f"🎶 <b>Progressione:</b> <code>{html.escape(lesson.progression)}</code>\n\n"
+            elif lesson.chords:
+                chords_str = ", ".join([f"{html.escape(c.name)} ({html.escape(c.fingering)})" for c in lesson.chords[:5]])
+                preview_block = f"🎼 <b>Accordi:</b> {chords_str}\n\n"
+
+            response_text = (
+                f"✅ <b>Scheda pronta su Notion!</b>\n\n"
+                f"🎸 <b>{safe_title}</b>\n"
+                f"👤 Autore: {safe_uploader}\n"
+                f"🎵 Tonalità: <code>{safe_key}</code> | ⚙️ Accordatura: <code>{safe_tuning}</code>\n"
+                f"Capotasto: <code>{safe_capo}</code>\n\n"
+                f"{preview_block}"
+                f"👉 <a href=\"{notion_url}\">Apri la scheda su Notion</a>"
+            )
+            await status_msg.edit_text(response_text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            logger.info("Elaborazione completata con successo per URL: %s", url)
 
     except Exception as e:
-        logger.error("Errore durante l'elaborazione: %s", e, exc_info=True)
+        logger.error("Errore durante l'elaborazione di %s: %s", url, e, exc_info=True)
+        # Mostra un messaggio di errore pulito e sicuro, privo di dump interni
+        safe_err_text = html.escape(str(e)[:300])
         error_msg = (
-            f"❌ **Si è verificato un errore durante l'elaborazione del video:**\n\n"
-            f"`{str(e)}`\n\n"
-            "Verifica che il video sia pubblico e accessibile e riprova."
+            "❌ <b>Si è verificato un errore durante l'elaborazione del video:</b>\n\n"
+            f"<code>{safe_err_text}</code>\n\n"
+            "Verifica che il link sia pubblico e accessibile e riprova."
         )
-        await status_msg.edit_text(error_msg, parse_mode="Markdown")
+        try:
+            await status_msg.edit_text(error_msg, parse_mode=ParseMode.HTML)
+        except Exception as edit_err:
+            logger.warning("Impossibile modificare il messaggio di errore: %s", edit_err)
 
     finally:
         # Pulizia file temporanei scaricati
@@ -139,6 +162,19 @@ def main():
     logger.info("Avvio CozyTabs Bot v%s (API v%s)...", APP_VERSION, API_VERSION)
     logger.info("Utenti autorizzati: %s", Config.ALLOWED_USER_IDS)
 
+    # Pulizia preventiva della directory temporanea
+    if os.path.exists(Config.DOWNLOAD_DIR):
+        logger.info("Pulizia preventiva della cartella di download: %s", Config.DOWNLOAD_DIR)
+        for item in os.listdir(Config.DOWNLOAD_DIR):
+            item_path = os.path.join(Config.DOWNLOAD_DIR, item)
+            try:
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+            except Exception as e:
+                logger.warning("Impossibile rimuovere %s: %s", item_path, e)
+
     app = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", start_command))
@@ -148,3 +184,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
