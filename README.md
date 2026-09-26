@@ -1,7 +1,7 @@
 # 🎸 CozyTabs
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)
-![API Version](https://img.shields.io/badge/api-1.2.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)
+![API Version](https://img.shields.io/badge/api-1.3.0-green.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-orange.svg)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 ![Docker](https://img.shields.io/badge/docker-multi--arch-blue.svg)
@@ -18,7 +18,7 @@ Spesso scopriamo riff o lezioni di chitarra interessanti su TikTok mentre siamo 
 * Impossibile rallentare a sezioni o mettere in loop battute specifiche.
 * Mancanza di uno spartito o tablatura comoda da consultare.
 
-**CozyTabs** risolve questo attrito: basta condividere il link al bot Telegram mentre sei al telefono. Dietro le quinte, il bot scarica il video, Gemini analizza i fotogrammi e l'armonia, e crea una scheda chiara su Notion.
+**CozyTabs** risolve questo attrito: basta condividere il link al bot Telegram mentre sei al telefono. Dietro le quinte, il bot scarica il video, Gemini analizza fotogrammi e traccia audio (analisi bimodale), e crea una scheda strutturata nel Database di Notion.
 
 ---
 
@@ -29,15 +29,16 @@ Spesso scopriamo riff o lezioni di chitarra interessanti su TikTok mentre siamo 
                                                         │
                                           ┌─────────────┴─────────────┐
                                           ▼                           ▼
-                                      [yt-dlp]                [Gemini Flash]
-                               (Download .mp4 pulito)    (Vision OCR + Diteggiature)
+                                      [yt-dlp]                [Gemini Bimodale]
+                                (Download .mp4 pulito)    (Vision OCR + Audio 16kHz)
                                           │                           │
                                           └─────────────┬─────────────┘
                                                         ▼
-                                            [Scheda Notion Automatica]
-                                         - Tablatura ASCII a 6 corde
-                                         - Box accordi e diteggiature
-                                         - Mano destra e consigli studio
+                                           [Notion Database CozyTabs]
+                                          - Proprietà: Tonalità, Accordi, Cover
+                                          - Tablatura ASCII a 6 corde
+                                          - Box accordi e diteggiature
+                                          - Mano destra e consigli studio
 ```
 
 ---
@@ -45,9 +46,10 @@ Spesso scopriamo riff o lezioni di chitarra interessanti su TikTok mentre siamo 
 ## 🚀 Funzionalità
 
 * **Friction-Zero dal Telefono**: Condividi il link TikTok/Reels al bot Telegram e riponi il telefono.
-* **Analisi Multimodale Gemini**: Legge la grafica a schermo (accordi, tab sovraimpresse) e osserva le posizioni delle mani del chitarrista sul manico.
-* **Correzione Refusi Video**: Riconosce eventuali errori nelle grafiche del video confrontandole con le posizioni reali delle dita.
-* **Organizzazione su Notion**: Genera una sottopagina dedicata sotto `🎸 CozyTabs — Riff & Accordi`, con accordatura, tonalità, diteggiature esatte (`E A D G B e`) e codice ASCII ingrandibile.
+* **Analisi Bimodale Gemini (Audio + Vision)**: Unisce l'ascolto della traccia audio (16kHz mono per rilevare tonalità reale, cambi accordo, tempo e strumming pattern) alla visione dei fotogrammi (OCR tab e diteggiatura sul manico).
+* **Database Notion Strutturato**: Archivia le schede in `🎸 Archivio Schede CozyTabs` con proprietà tipizzate (*Titolo*, *Autore*, *Tonalità*, *Accordatura*, *Capotasto*, *Accordi*, *Formato*, *Link Originale*, *Data*) e copertina thumbnail del video.
+* **Supporto Photo Mode & Infografiche**: Analizza caroselli di immagini didattiche oltre ai normali video.
+* **Correzione Refusi Video**: Riconosce eventuali errori nelle grafiche del video confrontandole con le posizioni reali delle dita e l'armonia percepita a orecchio.
 * **Sicurezza & Whitelist**: Risponde solo agli utenti autorizzati (`ALLOWED_USER_IDS`).
 
 ---
@@ -60,6 +62,7 @@ ALLOWED_USER_IDS=12345678
 GEMINI_API_KEY=your_gemini_api_key_here
 NOTION_TOKEN=your_notion_integration_token_here
 NOTION_PARENT_PAGE_ID=your_parent_page_id_here
+NOTION_DATABASE_ID=00000000-0000-0000-0000-000000000000
 DOWNLOAD_DIR=/tmp/cozytabs
 LOG_LEVEL=INFO
 ```
@@ -68,7 +71,7 @@ LOG_LEVEL=INFO
 
 ## 🧪 Test Automatici
 
-I test unitari coprono la validazione di configurazione, whitelist, estrazione URL, parsing Pydantic e client Notion:
+I test unitari coprono la validazione di configurazione, whitelist, estrazione URL, parsing Pydantic, estrazione audio bimodale e client Notion Database:
 
 ```bash
 pytest -v

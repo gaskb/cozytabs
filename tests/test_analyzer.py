@@ -22,3 +22,42 @@ def test_guitar_lesson_model():
     assert len(lesson.chords) == 2
     assert lesson.chords[0].name == "Aadd#4"
     assert "e|-------0-------|" in lesson.tablature
+
+def test_extract_audio_track_success(monkeypatch, tmp_path):
+    from analyzer import extract_audio_track
+    import subprocess
+    from unittest.mock import MagicMock
+
+    test_video = str(tmp_path / "video.mp4")
+    test_audio = str(tmp_path / "audio.mp3")
+    with open(test_video, "w") as vf:
+        vf.write("dummy video")
+
+    def mock_run(cmd, stdout=None, stderr=None):
+        # simula creazione file audio
+        with open(test_audio, "w") as af:
+            af.write("dummy audio content")
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        return mock_res
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    res = extract_audio_track(test_video, test_audio)
+    assert res == test_audio
+
+def test_extract_audio_track_failure(monkeypatch, tmp_path):
+    from analyzer import extract_audio_track
+    import subprocess
+    from unittest.mock import MagicMock
+
+    test_video = str(tmp_path / "video.mp4")
+    test_audio = str(tmp_path / "audio.mp3")
+
+    def mock_run(cmd, stdout=None, stderr=None):
+        mock_res = MagicMock()
+        mock_res.returncode = 1
+        return mock_res
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    res = extract_audio_track(test_video, test_audio)
+    assert res is None

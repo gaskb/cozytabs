@@ -70,6 +70,8 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
             base, _ = os.path.splitext(filename)
             mp4_file = f"{base}.mp4"
 
+            thumbnail_url = info.get("thumbnail") or (thumb_urls[0] if 'thumb_urls' in locals() and thumb_urls else "")
+
             if has_video_stream and os.path.exists(mp4_file):
                 return {
                     "id": video_id,
@@ -80,6 +82,7 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
                     "media_type": "video",
                     "file_path": mp4_file,
                     "image_paths": [],
+                    "thumbnail_url": thumbnail_url,
                 }
             elif has_video_stream and os.path.exists(filename):
                 return {
@@ -91,6 +94,7 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
                     "media_type": "video",
                     "file_path": filename,
                     "image_paths": [],
+                    "thumbnail_url": thumbnail_url,
                 }
             else:
                 # Post fotografico (Photo Mode / Infografica)
@@ -137,6 +141,7 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
                     "media_type": "photo",
                     "file_path": image_paths[0],
                     "image_paths": image_paths,
+                    "thumbnail_url": thumb_urls[0] if thumb_urls else (info.get("thumbnail") or ""),
                 }
 
     except Exception as e:

@@ -27,6 +27,27 @@ class GuitarLesson(BaseModel):
     execution_tips: List[str] = Field(default_factory=list, description="Consigli pratici ed ergonomici per suonare il passaggio o applicare i concetti")
     summary: str = Field(default="", description="Spiegazione del concetto armonico, trucco o consiglio didattico mostrato nel post")
 
+def extract_audio_track(video_path: str, output_path: str) -> Optional[str]:
+    """
+    Estrae la traccia audio dal video convertendola in MP3 mono 16kHz compatto (64 kbps)
+    per consentire a Gemini l'ascolto simultaneo di tonalità, tempo, arpeggi e strumming pattern.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-vn", "-ar", "16000", "-ac", "1", "-b:a", "64k",
+        output_path
+    ]
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            logger.info("Traccia audio estratta con successo (%d bytes): %s", os.path.getsize(output_path), output_path)
+            return output_path
+        logger.warning("Estrazione audio ffmpeg terminata con codice %d o file vuoto", res.returncode)
+        return None
+    except Exception as e:
+        logger.warning("Errore durante estrazione audio ffmpeg: %s", e)
+        return None
+
 def extract_keyframes(video_path: str, output_dir: str, num_frames: int = 8) -> List[str]:
     """
     Estrae fotogrammi chiave equidistanti dal video per l'analisi visiva con Gemini.
@@ -76,11 +97,13 @@ def analyze_guitar_video(
     image_paths: Optional[List[str]] = None
 ) -> GuitarLesson:
     """
-    Analizza i fotogrammi estratti dal video o le immagini di un post fotografico usando Gemini Flash
-    per ricavare tablatura, accordi, diteggiature, progressioni e consigli didattici.
+    Analizza i fotogrammi estratti dal video o le immagini di un post fotografico,
+    integrando la traccia audio del video se disponibile (Analisi Bimodale Gemini),
+    per ricavare tablatura, accordi, diteggiature, progressioni, tempo e consigli didattici.
     """
     client = genai.Client(api_key=api_key)
 
+    has_audio = False
     if image_paths and len(image_paths) > 0:
         frames = image_paths
         logger.info("Utilizzo %d immagini fornite direttamente per l'analisi visiva", len(frames))
@@ -88,22 +111,48 @@ def analyze_guitar_video(
         tmp_dir = os.path.join(os.path.dirname(video_path), "frames")
         frames = extract_keyframes(video_path, tmp_dir, num_frames=8)
 
+        # ARCH-2: Estrazione traccia audio per analisi bimodale (16kHz mono MP3 compresso)
+        audio_output_path = os.path.join(os.path.dirname(video_path), "audio.mp3")
+        extracted_audio = extract_audio_track(video_path, audio_output_path)
+        if extracted_audio:
+            has_audio = True
+
     if not frames:
         raise ValueError("Nessun fotogramma o immagine disponibile per l'analisi.")
 
     inputs = []
+    # Inserimento fotogrammi visivi
     for fpath in frames:
         with open(fpath, "rb") as f:
             b64_data = base64.b64encode(f.read()).decode("utf-8")
             inputs.append({"type": "image", "data": b64_data, "mime_type": "image/jpeg"})
+
+    # Inserimento traccia audio se disponibile (Bimodal Analysis)
+    if has_audio:
+        try:
+            with open(audio_output_path, "rb") as af:
+                audio_b64 = base64.b64encode(af.read()).decode("utf-8")
+                inputs.append({"type": "audio", "data": audio_b64, "mime_type": "audio/mp3"})
+            logger.info("Traccia audio incorporata con successo negli input per Gemini")
+        except Exception as err:
+            logger.warning("Impossibile leggere il file audio per l'invio a Gemini: %s", err)
+
+    audio_guidance = ""
+    if has_audio:
+        audio_guidance = (
+            "- Ti è fornita anche la TRACCIA AUDIO ORIGINALE del video in MP3 mono.\n"
+            "- Esegui un'ANALISI BIMODALE COMPLETA: ascolta la traccia audio per identificare a orecchio la reale tonalità (Key), "
+            "i cambi di accordo esatti, il tempo, e il pattern della mano destra (strumming es. D-DU-UDU, arpeggio dita o plettrata).\n"
+            "- Correla l'audio con le diteggiature e i movimenti delle mani osservati nei fotogrammi visivi per confermare ogni singola nota e voicing.\n"
+        )
 
     prompt = f"""Sei un maestro di musica, chitarra ed esperto didattico/trascrittore professionista.
 Ti sono forniti dei fotogrammi sequenziali o un'immagine/infografica didattica musicale (TikTok/Reel/Post).
 Informazioni disponibili:
 - Autore: {uploader or 'Creator'}
 - Titolo post/video: {video_title or 'Lezione/Post Musicale'}
-
-Il tuo compito è analizzare con massima accuratezza ciò che è mostrato a schermo (diteggiature, accordi, nomi, box di accordi, tablature sovraimpresse, posizioni delle mani o schemi didattici).
+{audio_guidance}
+Il tuo compito è analizzare con massima accuratezza sia ciò che è mostrato a schermo (diteggiature, accordi, nomi, box di accordi, tablature sovraimpresse, posizioni delle mani o schemi didattici) sia l'audio (se fornito).
 
 DEVI restituire ESCLUSIVAMENTE un oggetto JSON valido conforme a questa struttura:
 {{

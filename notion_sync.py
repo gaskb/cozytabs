@@ -1,7 +1,8 @@
 import json
 import logging
 import requests
-from typing import Dict, Any
+from datetime import datetime
+from typing import Dict, Any, Optional
 from analyzer import GuitarLesson
 from config import Config
 
@@ -38,10 +39,16 @@ def split_text_chunks(text: str, max_length: int = 1900) -> list[str]:
         chunks.append("\n".join(current_chunk))
     return chunks
 
-def publish_to_notion(lesson: GuitarLesson, original_url: str, uploader: str) -> str:
+def publish_to_notion(
+    lesson: GuitarLesson,
+    original_url: str,
+    uploader: str,
+    cover_url: Optional[str] = None,
+    media_type: str = "video"
+) -> str:
     """
-    Crea una sottopagina formattata su Notion sotto la pagina radice CozyTabs.
-    Restituisce l'URL della pagina Notion creata.
+    Crea una scheda formattata su Notion (all'interno del Database CozyTabs o come sottopagina).
+    Valorizza proprietà strutturate (Tonalità, Accordi, Accordatura, Cover, ecc.) e restituisce l'URL.
     """
     headers = {
         "Authorization": f"Bearer {Config.NOTION_TOKEN}",
@@ -179,17 +186,65 @@ def publish_to_notion(lesson: GuitarLesson, original_url: str, uploader: str) ->
                 }
             })
 
-    # Creazione pagina Notion
-    body = {
-        "parent": {"page_id": Config.NOTION_PARENT_PAGE_ID},
-        "icon": {"type": "emoji", "emoji": "🎸"},
-        "properties": {
-            "title": {
-                "title": [{"type": "text", "text": {"content": lesson.title}}]
+    # Creazione pagina Notion (nel Database o come sottopagina)
+    if Config.NOTION_DATABASE_ID:
+        format_label = "Infografica Foto" if media_type == "photo" else "Video Lezione"
+        db_properties: Dict[str, Any] = {
+            "Titolo": {
+                "title": [{"type": "text", "text": {"content": lesson.title[:200]}}]
+            },
+            "Autore": {
+                "rich_text": [{"type": "text", "text": {"content": uploader[:200]}}]
+            },
+            "Formato": {
+                "select": {"name": format_label}
+            },
+            "Link Originale": {
+                "url": original_url
+            },
+            "Data": {
+                "date": {"start": datetime.now().strftime("%Y-%m-%d")}
             }
-        },
-        "children": children
-    }
+        }
+        if lesson.key:
+            db_properties["Tonalità"] = {"select": {"name": lesson.key[:100].replace(",", "")}}
+        if lesson.tuning:
+            db_properties["Accordatura"] = {"select": {"name": lesson.tuning[:100].replace(",", "")}}
+        if lesson.capo:
+            db_properties["Capotasto"] = {"rich_text": [{"type": "text", "text": {"content": lesson.capo[:100]}}]}
+
+        if lesson.chords:
+            clean_chords = []
+            seen = set()
+            for c in lesson.chords[:12]:
+                c_name = c.name.strip().replace(",", "")[:100]
+                if c_name and c_name not in seen:
+                    clean_chords.append({"name": c_name})
+                    seen.add(c_name)
+            if clean_chords:
+                db_properties["Accordi"] = {"multi_select": clean_chords}
+
+        body: Dict[str, Any] = {
+            "parent": {"database_id": Config.NOTION_DATABASE_ID},
+            "icon": {"type": "emoji", "emoji": "🎸"},
+            "properties": db_properties,
+            "children": children
+        }
+    else:
+        body = {
+            "parent": {"page_id": Config.NOTION_PARENT_PAGE_ID},
+            "icon": {"type": "emoji", "emoji": "🎸"},
+            "properties": {
+                "title": {
+                    "title": [{"type": "text", "text": {"content": lesson.title}}]
+                }
+            },
+            "children": children
+        }
+
+    # Impostazione immagine di copertina della scheda (Cover)
+    if cover_url and cover_url.startswith("http"):
+        body["cover"] = {"type": "external", "external": {"url": cover_url}}
 
     resp = requests.post(f"{NOTION_API_URL}/pages", headers=headers, json=body, timeout=20)
     if resp.status_code != 200:
@@ -198,5 +253,5 @@ def publish_to_notion(lesson: GuitarLesson, original_url: str, uploader: str) ->
 
     page_data = resp.json()
     page_url = page_data.get("url", "")
-    logger.info("Creata pagina Notion: %s (ID: %s)", page_url, page_data.get("id"))
+    logger.info("Creata scheda su Notion: %s (ID: %s)", page_url, page_data.get("id"))
     return page_url

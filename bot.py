@@ -82,8 +82,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             video_info = await asyncio.to_thread(download_video, url, work_dir)
             video_path = video_info["file_path"]
 
-            # 2. Analisi multimodale Gemini
-            await status_msg.edit_text("🧠 <b>[2/3]</b> Analisi armonica e diteggiature con Gemini Vision...", parse_mode=ParseMode.HTML)
+            # 2. Analisi multimodale Gemini (Audio + Vision)
+            await status_msg.edit_text("🧠 <b>[2/3]</b> Analisi bimodale (Audio + Vision) con Gemini...", parse_mode=ParseMode.HTML)
             logger.info("Avvio analisi Gemini per: %s", video_path)
             lesson = await asyncio.to_thread(
                 analyze_guitar_video,
@@ -94,14 +94,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 video_info.get("image_paths", [])
             )
 
-            # 3. Creazione pagina Notion
+            # 3. Creazione scheda nel Database Notion
             await status_msg.edit_text("📝 <b>[3/3]</b> Creo la scheda formattata su Notion...", parse_mode=ParseMode.HTML)
             logger.info("Pubblicazione scheda su Notion...")
             notion_url = await asyncio.to_thread(
                 publish_to_notion,
                 lesson,
                 url,
-                video_info.get("uploader", "")
+                video_info.get("uploader", ""),
+                video_info.get("thumbnail_url"),
+                video_info.get("media_type", "video")
             )
 
             # 4. Risposta finale formattata in HTML sicuro con Inline Keyboard
