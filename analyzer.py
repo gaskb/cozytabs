@@ -7,6 +7,7 @@ import subprocess
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ def analyze_guitar_video(
     integrando la traccia audio del video se disponibile (Analisi Bimodale Gemini),
     per ricavare tablatura, accordi, diteggiature, progressioni, tempo e consigli didattici.
     """
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60000))
 
     has_audio = False
     if image_paths and len(image_paths) > 0:

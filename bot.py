@@ -148,12 +148,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error("Errore durante l'elaborazione di %s: %s", url, e, exc_info=True)
-        # Mostra un messaggio di errore pulito e sicuro, privo di dump interni
-        safe_err_text = html.escape(str(e)[:300])
+        # Messaggio utente sicuro e categorizzato (Zero-Leakage di percorsi file o credenziali)
+        err_lower = str(e).lower()
+        if "download" in err_lower or "non trovato" in err_lower or "yt-dlp" in err_lower:
+            user_reason = "Impossibile scaricare il media. Verifica che il link sia pubblico, corretto e accessibile."
+        elif "gemini" in err_lower or "modelli" in err_lower:
+            user_reason = "Impossibile completare l'analisi musicale con Gemini AI. Riprova tra qualche istante."
+        elif "notion" in err_lower:
+            user_reason = "Impossibile salvare la scheda su Notion. Verifica la connessione e la configurazione del database."
+        else:
+            user_reason = "Si è verificato un errore imprevisto durante l'elaborazione del post."
+
         error_msg = (
-            "❌ <b>Si è verificato un errore durante l'elaborazione del video:</b>\n\n"
-            f"<code>{safe_err_text}</code>\n\n"
-            "Verifica che il link sia pubblico e accessibile e riprova."
+            "❌ <b>Elaborazione non riuscita</b>\n\n"
+            f"⚠️ {html.escape(user_reason)}\n\n"
+            "<i>I dettagli diagnostici sono stati registrati nei log del server.</i>"
         )
         try:
             await status_msg.edit_text(error_msg, parse_mode=ParseMode.HTML)

@@ -87,3 +87,22 @@ def test_notion_publish_page_fallback(monkeypatch):
         called_json = mock_post.call_args[1]["json"]
         assert "page_id" in called_json["parent"]
         assert called_json["properties"]["title"]["title"][0]["text"]["content"] == "Progressione Fallback"
+
+def test_notion_publish_http_error(monkeypatch):
+    mock_post = MagicMock()
+    mock_post.return_value.status_code = 403
+    mock_post.return_value.text = "Forbidden - Invalid Notion Token"
+
+    lesson = GuitarLesson(title="Test Errore")
+    with patch("requests.post", mock_post):
+        with pytest.raises(RuntimeError, match="Errore Notion API \\(403\\)"):
+            publish_to_notion(lesson, "https://example.com/riff", "Creator")
+
+def test_notion_publish_timeout(monkeypatch):
+    import requests
+    mock_post = MagicMock(side_effect=requests.exceptions.Timeout("Connection timed out"))
+
+    lesson = GuitarLesson(title="Test Timeout")
+    with patch("requests.post", mock_post):
+        with pytest.raises(requests.exceptions.Timeout):
+            publish_to_notion(lesson, "https://example.com/riff", "Creator")

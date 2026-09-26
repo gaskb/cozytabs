@@ -55,3 +55,18 @@ def test_download_video_mock(monkeypatch, tmp_path):
     assert result["media_type"] == "video"
     assert result["file_path"] == str(fake_mp4)
 
+def test_download_video_failure(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+    from extractor import download_video
+    import yt_dlp
+
+    mock_ydl_instance = MagicMock()
+    mock_ydl_instance.extract_info.side_effect = Exception("Video non disponibile o privato")
+    mock_ydl_class = MagicMock(return_value=mock_ydl_instance)
+    mock_ydl_instance.__enter__.return_value = mock_ydl_instance
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", mock_ydl_class)
+
+    with pytest.raises(RuntimeError, match="Errore download media"):
+        download_video("https://tiktok.com/@g/video/99999", output_dir=str(tmp_path))
+

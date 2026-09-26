@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APP_VERSION = "1.3.0"
-API_VERSION = "1.3.0"
-UI_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
+API_VERSION = "1.3.1"
+UI_VERSION = "1.3.1"
 
 class Config:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()

@@ -1,12 +1,17 @@
 .env
 .env.*
 cookies.txt
+*.pem
+*.key
+*.db
 .git
 .gitignore
 venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+tests/
+docs/
 tmp/
 *.m4a
 *.mp4

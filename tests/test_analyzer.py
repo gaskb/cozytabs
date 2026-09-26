@@ -61,3 +61,31 @@ def test_extract_audio_track_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", mock_run)
     res = extract_audio_track(test_video, test_audio)
     assert res is None
+
+def test_analyze_guitar_video_no_frames(monkeypatch, tmp_path):
+    from analyzer import analyze_guitar_video
+    # se non ci sono frame o immagini
+    monkeypatch.setattr("analyzer.extract_keyframes", lambda *args, **kwargs: [])
+    dummy_video = str(tmp_path / "dummy.mp4")
+    with open(dummy_video, "w") as f:
+        f.write("data")
+
+    with pytest.raises(ValueError, match="Nessun fotogramma o immagine"):
+        analyze_guitar_video(dummy_video, api_key="fake-key", image_paths=[])
+
+def test_analyze_guitar_video_all_models_fail(monkeypatch, tmp_path):
+    from analyzer import analyze_guitar_video
+    dummy_img = str(tmp_path / "dummy.jpg")
+    with open(dummy_img, "w") as f:
+        f.write("fake jpeg bytes")
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            self.interactions = self
+        def create(self, *args, **kwargs):
+            raise Exception("API Quota Exceeded or Timeout")
+
+    monkeypatch.setattr("google.genai.Client", MockClient)
+
+    with pytest.raises(RuntimeError, match="Tutti i modelli Gemini candidati hanno fallito"):
+        analyze_guitar_video("video.mp4", api_key="fake-key", image_paths=[dummy_img])

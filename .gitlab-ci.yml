@@ -1,0 +1,26 @@
+stages:
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip/
+    - venv/
+
+test:
+  stage: test
+  image: python:3.12-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates procps
+    - python -m venv venv
+    - . venv/bin/activate
+    - pip install --no-cache-dir -r requirements.txt
+    - pip install pytest pytest-asyncio pytest-mock
+  script:
+    - . venv/bin/activate
+    - pytest -v
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"

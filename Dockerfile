@@ -1,9 +1,10 @@
 FROM python:3.12-slim
 
-# Install system dependencies: ffmpeg for yt-dlp audio/video processing
+# Install system dependencies: ffmpeg for yt-dlp audio/video processing and procps for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -24,5 +25,8 @@ ENV PYTHONUNBUFFERED=1
 ENV DOWNLOAD_DIR=/tmp/cozytabs
 
 USER appuser
+
+HEALTHCHECK --interval=60s --timeout=5s --start-period=15s --retries=3 \
+  CMD pgrep -f "python bot.py" > /dev/null || exit 1
 
 CMD ["python", "bot.py"]
