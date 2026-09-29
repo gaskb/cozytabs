@@ -104,7 +104,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 url,
                 video_info.get("uploader", ""),
                 video_info.get("thumbnail_url"),
-                video_info.get("media_type", "video")
+                video_info.get("media_type", "video"),
+                video_info.get("image_paths", []),
             )
 
             # 4. Risposta finale formattata in HTML sicuro con Inline Keyboard

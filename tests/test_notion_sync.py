@@ -88,6 +88,57 @@ def test_notion_publish_page_fallback(monkeypatch):
         assert "page_id" in called_json["parent"]
         assert called_json["properties"]["title"]["title"][0]["text"]["content"] == "Progressione Fallback"
 
+def test_notion_publish_uploads_all_photo_images_in_order(tmp_path):
+    image_paths = []
+    for index in range(2):
+        image_path = tmp_path / f"photo_{index}.jpg"
+        image_path.write_bytes(b"jpeg-data" * 200)
+        image_paths.append(str(image_path))
+
+    upload_one = MagicMock(status_code=200)
+    upload_one.json.return_value = {"id": "upload-one"}
+    send_one = MagicMock(status_code=200)
+    upload_two = MagicMock(status_code=200)
+    upload_two.json.return_value = {"id": "upload-two"}
+    send_two = MagicMock(status_code=200)
+    page_response = MagicMock(status_code=200)
+    page_response.json.return_value = {"id": "page-id", "url": "https://notion.so/photo-page"}
+    mock_post = MagicMock(side_effect=[upload_one, send_one, upload_two, send_two, page_response])
+
+    lesson = GuitarLesson(title="Carosello Test")
+    with patch("requests.post", mock_post):
+        page_url = publish_to_notion(
+            lesson,
+            "https://tiktok.com/@test/photo/123",
+            "PhotoCreator",
+            media_type="photo",
+            image_paths=image_paths,
+        )
+
+    assert page_url == "https://notion.so/photo-page"
+    page_body = mock_post.call_args_list[-1].kwargs["json"]
+    image_blocks = [block for block in page_body["children"] if block["type"] == "image"]
+    assert [block["image"]["file_upload"]["id"] for block in image_blocks] == ["upload-one", "upload-two"]
+    assert mock_post.call_args_list[1].kwargs["headers"].get("Content-Type") is None
+    assert mock_post.call_args_list[3].kwargs["headers"].get("Content-Type") is None
+
+def test_notion_publish_ignores_missing_photo_files(tmp_path):
+    mock_post = MagicMock()
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {"id": "page-id", "url": "https://notion.so/test-page"}
+
+    with patch("requests.post", mock_post):
+        publish_to_notion(
+            GuitarLesson(title="Immagine Assente"),
+            "https://tiktok.com/@test/photo/456",
+            "PhotoCreator",
+            media_type="photo",
+            image_paths=[str(tmp_path / "missing.jpg")],
+        )
+
+    page_body = mock_post.call_args.kwargs["json"]
+    assert not any(block["type"] == "image" for block in page_body["children"])
+
 def test_notion_publish_http_error(monkeypatch):
     mock_post = MagicMock()
     mock_post.return_value.status_code = 403

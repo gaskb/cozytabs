@@ -7,9 +7,71 @@ import yt_dlp
 
 logger = logging.getLogger(__name__)
 
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+MIN_MEDIA_BYTES = 1000
+CONNECT_TIMEOUT_SECONDS = 10
+READ_TIMEOUT_SECONDS = 30
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
+
 URL_REGEX = re.compile(
     r"(https?://(?:www\.|vm\.|vt\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)/[^\s]+)"
 )
+
+def _safe_download_stream(
+    url: str,
+    destination: str,
+    headers: Dict[str, str],
+    allowed_content_types: tuple[str, ...],
+) -> int:
+    """Scarica un media con limiti di dimensione e scrittura atomica."""
+    response = None
+    temporary_path = f"{destination}.part"
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            stream=True,
+            timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
+        )
+        if response.status_code != 200:
+            raise ValueError(f"Download media fallito con status {response.status_code}")
+
+        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if not content_type or not any(content_type.startswith(prefix) for prefix in allowed_content_types):
+            raise ValueError(f"Tipo di contenuto non supportato: {content_type or 'assente'}")
+
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                declared_size = int(content_length)
+            except ValueError as error:
+                raise ValueError("Content-Length non valido") from error
+            if declared_size > MAX_DOWNLOAD_BYTES:
+                raise ValueError("Il media supera la dimensione massima consentita")
+
+        downloaded_bytes = 0
+        with open(temporary_path, "wb") as media_file:
+            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                if not chunk:
+                    continue
+                downloaded_bytes += len(chunk)
+                if downloaded_bytes > MAX_DOWNLOAD_BYTES:
+                    raise ValueError("Il media supera la dimensione massima consentita")
+                media_file.write(chunk)
+
+        if downloaded_bytes < MIN_MEDIA_BYTES:
+            raise ValueError("Il media scaricato e' troppo piccolo o incompleto")
+
+        os.replace(temporary_path, destination)
+        return downloaded_bytes
+    except Exception:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+        raise
+    finally:
+        if response is not None:
+            response.close()
 
 def extract_url_from_text(text: str) -> Optional[str]:
     """Cerca e restituisce il primo link supportato (TikTok, Instagram, YouTube) presente nel testo."""
@@ -37,7 +99,7 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "max_filesize": 50 * 1024 * 1024,
+        "max_filesize": MAX_DOWNLOAD_BYTES,
     }
 
     # Controllo cookie
@@ -115,17 +177,14 @@ def download_video(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[str, Any
 
                 # Scarica la/le immagini migliori
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                for idx, t_url in enumerate(thumb_urls[:3]):
+                for idx, t_url in enumerate(thumb_urls):
                     dest_img = os.path.join(output_dir, f"photo_{video_id}_{idx}.jpg")
                     try:
-                        resp = requests.get(t_url, headers=headers, timeout=15)
-                        if resp.status_code == 200 and len(resp.content) > 1000:
-                            with open(dest_img, "wb") as out_f:
-                                out_f.write(resp.content)
-                            image_paths.append(dest_img)
-                            logger.info("Scaricata immagine %d: %s (%d bytes)", idx, dest_img, len(resp.content))
-                        else:
-                            logger.warning("Download thumbnail fallito con status %s per %s", resp.status_code, t_url)
+                        downloaded_bytes = _safe_download_stream(
+                            t_url, dest_img, headers, ("image/",)
+                        )
+                        image_paths.append(dest_img)
+                        logger.info("Scaricata immagine %d: %s (%d bytes)", idx, dest_img, downloaded_bytes)
                     except Exception as img_err:
                         logger.warning("Errore download thumbnail %s: %s", t_url, img_err)
 
@@ -168,39 +227,58 @@ def download_tiktok_direct(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    api_url = f"https://www.tikwm.com/api/?url={url}"
     logger.info("Chiamata endpoint TikWM per URL: %s", url)
-    resp = requests.get(api_url, headers=headers, timeout=15)
+    resp = requests.get(
+        "https://www.tikwm.com/api/",
+        params={"url": url},
+        headers=headers,
+        timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
+    )
     if resp.status_code != 200:
         raise ValueError(f"Endpoint TikWM non raggiungibile (HTTP {resp.status_code})")
 
-    res_json = resp.json()
-    if res_json.get("code") != 0 or not res_json.get("data"):
+    try:
+        res_json = resp.json()
+    except ValueError as error:
+        raise ValueError("TikWM ha restituito una risposta JSON non valida") from error
+
+    if not isinstance(res_json, dict):
+        raise ValueError("TikWM ha restituito un payload non valido")
+    if res_json.get("code") != 0:
         err_msg = res_json.get("msg") or "Dati non disponibili o video privato"
         raise ValueError(f"TikWM: {err_msg}")
 
-    data = res_json["data"]
+    data = res_json.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("TikWM non ha restituito dati media validi")
+
     video_id = str(data.get("id") or "tiktok_media")
     title = data.get("title") or "Riff o Lezione di Chitarra"
     author_info = data.get("author") or {}
+    if not isinstance(author_info, dict):
+        author_info = {}
     uploader = author_info.get("nickname") or author_info.get("unique_id") or "TikTok Creator"
     duration = data.get("duration", 0)
     thumbnail_url = data.get("cover") or data.get("origin_cover") or ""
 
     images = data.get("images") or []
-    if images and len(images) > 0:
+    if not isinstance(images, list):
+        raise ValueError("TikWM ha restituito una lista immagini non valida")
+    if images and not all(isinstance(image_url, str) and image_url.startswith(("http://", "https://")) for image_url in images):
+        raise ValueError("TikWM ha restituito URL immagini non validi")
+
+    if images:
         # Carosello fotografico / Photo Mode
         logger.info("TikWM: rilevato carosello fotografico con %d immagini", len(images))
         image_paths: List[str] = []
-        for idx, img_url in enumerate(images[:6]):
+        for idx, img_url in enumerate(images):
             dest_img = os.path.join(output_dir, f"photo_{video_id}_{idx}.jpg")
             try:
-                img_resp = requests.get(img_url, headers=headers, timeout=15)
-                if img_resp.status_code == 200 and len(img_resp.content) > 1000:
-                    with open(dest_img, "wb") as f:
-                        f.write(img_resp.content)
-                    image_paths.append(dest_img)
-                    logger.info("Scaricata immagine carosello %d: %s (%d bytes)", idx, dest_img, len(img_resp.content))
+                downloaded_bytes = _safe_download_stream(
+                    img_url, dest_img, headers, ("image/",)
+                )
+                image_paths.append(dest_img)
+                logger.info("Scaricata immagine carosello %d: %s (%d bytes)", idx, dest_img, downloaded_bytes)
             except Exception as img_err:
                 logger.warning("Errore scaricamento immagine %d (%s): %s", idx, img_url, img_err)
 
@@ -221,19 +299,16 @@ def download_tiktok_direct(url: str, output_dir: str = "/tmp/cozytabs") -> Dict[
     else:
         # Video MP4 normale
         play_url = data.get("play") or data.get("wmplay")
-        if not play_url:
+        if not isinstance(play_url, str) or not play_url.startswith(("http://", "https://")):
             raise ValueError("Nessun flusso video trovato nei dati restituiti da TikTok")
 
         mp4_file = os.path.join(output_dir, f"{video_id}.mp4")
         logger.info("TikWM: scaricamento video da CDN verso %s...", mp4_file)
-        video_resp = requests.get(play_url, headers=headers, stream=True, timeout=30)
-        if video_resp.status_code != 200 or len(video_resp.content) < 1000:
-            raise ValueError(f"Download stream video fallito con status {video_resp.status_code}")
+        downloaded_bytes = _safe_download_stream(
+            play_url, mp4_file, headers, ("video/", "application/octet-stream")
+        )
 
-        with open(mp4_file, "wb") as vf:
-            vf.write(video_resp.content)
-
-        logger.info("Download video TikTok completato: %s (%d bytes)", mp4_file, len(video_resp.content))
+        logger.info("Download video TikTok completato: %s (%d bytes)", mp4_file, downloaded_bytes)
         return {
             "id": video_id,
             "title": title,

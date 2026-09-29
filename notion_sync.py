@@ -1,15 +1,17 @@
-import json
 import logging
+import mimetypes
+import os
 import requests
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Sequence
 from analyzer import GuitarLesson
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 NOTION_API_URL = "https://api.notion.com/v1"
-NOTION_VERSION = "2022-06-28"
+NOTION_VERSION = "2026-03-11"
+NOTION_MAX_FILE_SIZE = 20 * 1024 * 1024
 
 def split_text_chunks(text: str, max_length: int = 1900) -> list[str]:
     """Divide un testo lungo in chunk non superiori a max_length caratteri preservando le righe."""
@@ -39,12 +41,68 @@ def split_text_chunks(text: str, max_length: int = 1900) -> list[str]:
         chunks.append("\n".join(current_chunk))
     return chunks
 
+def upload_image_to_notion(image_path: str, headers: Dict[str, str]) -> str:
+    """Carica un'immagine locale su Notion e restituisce il relativo upload ID."""
+    if not os.path.isfile(image_path):
+        raise ValueError(f"File immagine non trovato: {image_path}")
+    if os.path.getsize(image_path) > NOTION_MAX_FILE_SIZE:
+        raise ValueError(f"Immagine troppo grande per Notion: {image_path}")
+
+    content_type, _ = mimetypes.guess_type(image_path)
+    if not content_type or not content_type.startswith("image/"):
+        raise ValueError(f"Tipo immagine non supportato: {image_path}")
+
+    create_response = requests.post(
+        f"{NOTION_API_URL}/file_uploads",
+        headers=headers,
+        json={"filename": os.path.basename(image_path), "content_type": content_type},
+        timeout=20,
+    )
+    if create_response.status_code != 200:
+        raise RuntimeError(f"Errore creazione upload Notion ({create_response.status_code}): {create_response.text}")
+
+    upload_id = create_response.json().get("id")
+    if not isinstance(upload_id, str) or not upload_id:
+        raise RuntimeError("Notion non ha restituito un ID upload valido")
+
+    upload_headers = {key: value for key, value in headers.items() if key.lower() != "content-type"}
+    with open(image_path, "rb") as image_file:
+        send_response = requests.post(
+            f"{NOTION_API_URL}/file_uploads/{upload_id}/send",
+            headers=upload_headers,
+            files={"file": (os.path.basename(image_path), image_file, content_type)},
+            timeout=60,
+        )
+    if send_response.status_code != 200:
+        raise RuntimeError(f"Errore invio immagine a Notion ({send_response.status_code}): {send_response.text}")
+
+    return upload_id
+
+def build_image_blocks(image_paths: Sequence[str], headers: Dict[str, str]) -> list[Dict[str, Any]]:
+    """Prepara blocchi immagine Notion per tutti i file locali validi, nell'ordine ricevuto."""
+    image_blocks: list[Dict[str, Any]] = []
+    for image_path in image_paths:
+        if not image_path or not os.path.isfile(image_path):
+            logger.warning("Immagine locale assente, ignorata: %s", image_path)
+            continue
+        upload_id = upload_image_to_notion(image_path, headers)
+        image_blocks.append({
+            "object": "block",
+            "type": "image",
+            "image": {
+                "type": "file_upload",
+                "file_upload": {"id": upload_id},
+            },
+        })
+    return image_blocks
+
 def publish_to_notion(
     lesson: GuitarLesson,
     original_url: str,
     uploader: str,
     cover_url: Optional[str] = None,
-    media_type: str = "video"
+    media_type: str = "video",
+    image_paths: Optional[Sequence[str]] = None,
 ) -> str:
     """
     Crea una scheda formattata su Notion (all'interno del Database CozyTabs o come sottopagina).
@@ -185,6 +243,17 @@ def publish_to_notion(
                     "rich_text": [{"type": "text", "text": {"content": extra_summary}}]
                 }
             })
+
+    uploaded_image_blocks = build_image_blocks(image_paths or [], headers)
+    if uploaded_image_blocks:
+        children.append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [{"type": "text", "text": {"content": "Immagini del Post"}}]
+            }
+        })
+        children.extend(uploaded_image_blocks)
 
     # Creazione pagina Notion (nel Database o come sottopagina)
     if Config.NOTION_DATABASE_ID:
