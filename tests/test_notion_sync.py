@@ -157,3 +157,36 @@ def test_notion_publish_timeout(monkeypatch):
     with patch("requests.post", mock_post):
         with pytest.raises(requests.exceptions.Timeout):
             publish_to_notion(lesson, "https://example.com/riff", "Creator")
+
+def test_notion_publish_handles_partial_image_upload_failure(tmp_path):
+    image_paths = []
+    for index in range(2):
+        image_path = tmp_path / f"photo_{index}.jpg"
+        image_path.write_bytes(b"jpeg-data" * 200)
+        image_paths.append(str(image_path))
+
+    # First image fails creation (HTTP 500), second succeeds, page creation succeeds
+    upload_fail = MagicMock(status_code=500, text="Internal Server Error")
+    upload_two = MagicMock(status_code=200)
+    upload_two.json.return_value = {"id": "upload-two"}
+    send_two = MagicMock(status_code=200)
+    page_response = MagicMock(status_code=200)
+    page_response.json.return_value = {"id": "page-id", "url": "https://notion.so/partial-photo-page"}
+    mock_post = MagicMock(side_effect=[upload_fail, upload_two, send_two, page_response])
+
+    lesson = GuitarLesson(title="Carosello Con Fallimento Singolo")
+    with patch("requests.post", mock_post):
+        page_url = publish_to_notion(
+            lesson,
+            "https://tiktok.com/@test/photo/123",
+            "PhotoCreator",
+            media_type="photo",
+            image_paths=image_paths,
+        )
+
+    assert page_url == "https://notion.so/partial-photo-page"
+    page_body = mock_post.call_args_list[-1].kwargs["json"]
+    image_blocks = [block for block in page_body["children"] if block["type"] == "image"]
+    assert len(image_blocks) == 1
+    assert image_blocks[0]["image"]["file_upload"]["id"] == "upload-two"
+

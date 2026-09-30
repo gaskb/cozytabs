@@ -85,15 +85,18 @@ def build_image_blocks(image_paths: Sequence[str], headers: Dict[str, str]) -> l
         if not image_path or not os.path.isfile(image_path):
             logger.warning("Immagine locale assente, ignorata: %s", image_path)
             continue
-        upload_id = upload_image_to_notion(image_path, headers)
-        image_blocks.append({
-            "object": "block",
-            "type": "image",
-            "image": {
-                "type": "file_upload",
-                "file_upload": {"id": upload_id},
-            },
-        })
+        try:
+            upload_id = upload_image_to_notion(image_path, headers)
+            image_blocks.append({
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "file_upload",
+                    "file_upload": {"id": upload_id},
+                },
+            })
+        except Exception as upload_err:
+            logger.warning("Caricamento immagine su Notion fallito (%s), ignorata: %s", image_path, upload_err)
     return image_blocks
 
 def publish_to_notion(
