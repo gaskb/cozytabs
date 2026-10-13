@@ -19,6 +19,7 @@ def test_split_text_chunks_long():
     assert "\n".join(chunks) == long_text
 
 def test_notion_publish_database_mode(monkeypatch):
+    monkeypatch.setattr(Config, "NOTION_DATABASE_ID", "mock-database-id-123")
     mock_post = MagicMock()
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {

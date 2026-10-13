@@ -1,9 +1,9 @@
 # 🎸 CozyTabs — Audit di Conformità alle Best Practice Notion & Homelab
 
 **Data Audit:** 26 Settembre 2026  
-**Versione Progetto:** v1.3.1 (Tutti i punti implementati e rilasciati)  
-**Documento di Riferimento:** [Standard Architetturali Homelab & Backend](https://app.notion.com/p/Standard-Architetturali-Homelab-Backend-00000000000000000000000000000000) (Notion ID: `00000000-0000-0000-0000-000000000000`)  
-**Codice Sorgente:** `/Users/gas/dev/gas/dev_projects/cozytabs` (GitLab: `github.com/gaskb/cozytabs`)
+**Versione Progetto:** v1.4.1  
+**Documento di Riferimento:** Linee Guida di Architettura Backend, Container Security & Robustness  
+**Repository:** [github.com/gaskb/cozytabs](https://github.com/gaskb/cozytabs)
 
 ---
 
